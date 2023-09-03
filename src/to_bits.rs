@@ -30,15 +30,13 @@ pub fn to_bits<F: PrimeField>(a: Wire<F>, cs: &mut ConstraintSystem<F>) -> Vec<W
 #[cfg(test)]
 mod tests {
     use super::*;
-    use frontend::test_circuit;
-    use frontend::wasm_deps::*;
 
-    type F = frontend::ark_secp256k1::Fq;
+    type Fp = frontend::ark_secp256k1::Fq;
 
     #[test]
     pub fn test_felt_to_bits() {
         let x = 12345u32;
-        let x_felt = F::from(x);
+        let x_felt = Fp::from(x);
         let bits = felt_to_bits(x_felt);
 
         for i in 0..(32 - x.leading_zeros()) {
@@ -49,27 +47,26 @@ mod tests {
 
     #[test]
     pub fn test_to_bits() {
-        test_circuit!(
-            |cs: &mut ConstraintSystem<F>| {
-                let a = cs.alloc_priv_input();
-                let bits = to_bits(a, cs);
+        let synthesizer = |cs: &mut ConstraintSystem<Fp>| {
+            let a = cs.alloc_priv_input();
+            let bits = to_bits(a, cs);
 
-                for bit in bits {
-                    cs.expose_public(bit);
-                }
-            },
-            F
-        );
+            for bit in bits {
+                cs.expose_public(bit);
+            }
+        };
 
-        let x = F::from(12345);
+        let x = Fp::from(12345);
         let expected_bits = felt_to_bits(x);
 
         let pub_input = expected_bits
             .iter()
-            .map(|b| F::from(*b as u64))
-            .collect::<Vec<F>>();
+            .map(|b| Fp::from(*b as u64))
+            .collect::<Vec<Fp>>();
         let priv_input = vec![x];
 
-        mock_run(&pub_input, &priv_input);
+        let mut cs = ConstraintSystem::new();
+        let witness = cs.gen_witness(synthesizer, &pub_input, &priv_input);
+        cs.is_sat(&witness, &pub_input, synthesizer);
     }
 }

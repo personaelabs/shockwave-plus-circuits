@@ -18,7 +18,38 @@ pub fn ec_double<F: PrimeField>(p: AffinePoint<F>, cs: &mut ConstraintSystem<F>)
 
 #[cfg(test)]
 mod tests {
+    use frontend::ark_secp256k1::Fr;
+    use frontend::wasm_deps::*;
+
+    use ark_ec::{AffineRepr, CurveGroup};
+    use frontend::ark_secp256k1::Affine as Secp256k1Affine;
+    type F = frontend::ark_secp256k1::Fq;
+
+    use super::*;
 
     #[test]
-    fn test_ec_double() {}
+    fn test_ec_double() {
+        let synthesizer = |cs: &mut ConstraintSystem<F>| {
+            let p_x = cs.alloc_priv_input();
+            let p_y = cs.alloc_priv_input();
+
+            let p = AffinePoint::<F>::new(p_x, p_y);
+
+            let out = ec_double(p, cs);
+
+            cs.expose_public(out.x);
+            cs.expose_public(out.y);
+        };
+
+        let p = (Secp256k1Affine::generator() * Fr::from(3)).into_affine();
+        let p_double = (p + p).into_affine();
+
+        let pub_input = [p_double.x, p_double.y];
+        let priv_input = [p.x, p.y];
+
+        let mut cs = ConstraintSystem::new();
+        let witness = cs.gen_witness(synthesizer, &pub_input, &priv_input);
+
+        assert!(cs.is_sat(&witness, &pub_input, synthesizer));
+    }
 }

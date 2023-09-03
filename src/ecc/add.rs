@@ -56,38 +56,33 @@ pub fn ec_add_complete<F: PrimeField>(
 #[cfg(test)]
 mod tests {
     use frontend::ark_secp256k1::Fr;
-    use frontend::test_circuit;
     use frontend::wasm_deps::*;
 
     use ark_ec::{AffineRepr, CurveGroup};
     use frontend::ark_secp256k1::Affine as Secp256k1Affine;
-    type F = frontend::ark_secp256k1::Fq;
+    type Fp = frontend::ark_secp256k1::Fq;
 
     use super::*;
 
+    fn add_incomplete_circuit<F: PrimeField>(cs: &mut ConstraintSystem<F>) {
+        let p_x = cs.alloc_priv_input();
+        let p_y = cs.alloc_priv_input();
+
+        let q_x = cs.alloc_priv_input();
+        let q_y = cs.alloc_priv_input();
+
+        let p = AffinePoint::<F>::new(p_x, p_y);
+        let q = AffinePoint::<F>::new(q_x, q_y);
+
+        let out = ec_add_incomplete(p, q);
+
+        cs.expose_public(out.x);
+        cs.expose_public(out.y);
+    }
+
     #[test]
     pub fn test_add_incomplete() {
-        test_circuit!(
-            |cs: &mut ConstraintSystem<F>| {
-                let p_x = cs.alloc_priv_input();
-                let p_y = cs.alloc_priv_input();
-
-                let q_x = cs.alloc_priv_input();
-                let q_y = cs.alloc_priv_input();
-
-                let p = AffinePoint::<F>::new(p_x, p_y);
-                let q = AffinePoint::<F>::new(q_x, q_y);
-
-                let out = ec_add_incomplete(p, q);
-
-                out.x.print_val();
-                out.y.print_val();
-
-                cs.expose_public(out.x);
-                cs.expose_public(out.y);
-            },
-            F
-        );
+        let synthesizer = |cs: &mut ConstraintSystem<Fp>| add_incomplete_circuit(cs);
 
         let p = Secp256k1Affine::generator();
         let q = (Secp256k1Affine::generator() * Fr::from(3)).into_affine();
@@ -97,29 +92,30 @@ mod tests {
         let pub_input = vec![out.x, out.y];
         let priv_input = vec![p.x, p.y, q.x, q.y];
 
-        mock_run(&pub_input, &priv_input)
+        let mut cs = ConstraintSystem::<Fp>::new();
+        let witness = cs.gen_witness(add_incomplete_circuit, &pub_input, &priv_input);
+        cs.is_sat(&witness, &pub_input, synthesizer);
+    }
+
+    fn add_complete_circuit<F: PrimeField>(cs: &mut ConstraintSystem<F>) {
+        let p_x = cs.alloc_priv_input();
+        let p_y = cs.alloc_priv_input();
+
+        let q_x = cs.alloc_priv_input();
+        let q_y = cs.alloc_priv_input();
+
+        let p = AffinePoint::<F>::new(p_x, p_y);
+        let q = AffinePoint::<F>::new(q_x, q_y);
+
+        let out = ec_add_complete(p, q, cs);
+
+        cs.expose_public(out.x);
+        cs.expose_public(out.y);
     }
 
     #[test]
     pub fn test_add_complete() {
-        test_circuit!(
-            |cs: &mut ConstraintSystem<F>| {
-                let p_x = cs.alloc_priv_input();
-                let p_y = cs.alloc_priv_input();
-
-                let q_x = cs.alloc_priv_input();
-                let q_y = cs.alloc_priv_input();
-
-                let p = AffinePoint::<F>::new(p_x, p_y);
-                let q = AffinePoint::<F>::new(q_x, q_y);
-
-                let out = ec_add_complete(p, q, cs);
-
-                cs.expose_public(out.x);
-                cs.expose_public(out.y);
-            },
-            F
-        );
+        let synthesizer = |cs: &mut ConstraintSystem<Fp>| add_complete_circuit(cs);
 
         let zero = Secp256k1Affine::identity();
 
@@ -134,12 +130,14 @@ mod tests {
             (p_nonzero, q_nonzero),
         ];
 
+        let mut cs = ConstraintSystem::<Fp>::new();
         for (p, q) in cases {
             let out = (p + q).into_affine();
             let pub_input = vec![out.x, out.y];
             let priv_input = vec![p.x, p.y, q.x, q.y];
 
-            mock_run(&pub_input, &priv_input);
+            let witness = cs.gen_witness(synthesizer, &pub_input, &priv_input);
+            cs.is_sat(&witness, &pub_input, synthesizer);
         }
     }
 }
