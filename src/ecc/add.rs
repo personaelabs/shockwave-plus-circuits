@@ -1,27 +1,18 @@
 use super::AffinePoint;
-use frontend::{ConstraintSystem, FieldExt};
+use frontend::ark_ff::PrimeField;
+use frontend::ConstraintSystem;
 
 // Incomplete addition for short-Weierstrass curves.
 // We follow the specification from the halo2 book;
 // https://zcash.github.io/halo2/design/gadgets/sinsemilla.html?highlight=incomplete#incomplete-addition
-pub fn ec_add_incomplete<F: FieldExt>(
-    p: AffinePoint<F>,
-    q: AffinePoint<F>,
-    cs: &mut ConstraintSystem<F>,
-) -> AffinePoint<F> {
-    let p_x = p.x;
-    let p_y = p.y;
+pub fn ec_add_incomplete<F: PrimeField>(p: AffinePoint<F>, q: AffinePoint<F>) -> AffinePoint<F> {
+    let dx = p.x - q.x;
+    let dy = p.y - q.y;
 
-    let q_x = q.x;
-    let q_y = q.y;
+    let lambda = dy.div_or_zero(dx);
 
-    let dx = p_x.sub(q_x, cs);
-    let dy = p_y.sub(q_y, cs);
-
-    let lambda = dy.div_or_zero(dx, cs);
-
-    let out_x = lambda.square(cs).sub(p_x, cs).sub(q_x, cs);
-    let out_y = lambda.mul(p_x.sub(out_x, cs), cs).sub(p_y, cs);
+    let out_x = (lambda * lambda) - p.x - q.x;
+    let out_y = lambda * (p.x - out_x) - p.y;
 
     AffinePoint::new(out_x, out_y)
 }
@@ -29,55 +20,48 @@ pub fn ec_add_incomplete<F: FieldExt>(
 // Complete addition for short-Weierstrass curves.
 // We follow the specification from the halo2 book.
 // https://zcash.github.io/halo2/design/gadgets/ecc/addition.html#complete-addition
-pub fn ec_add_complete<F: FieldExt>(
+pub fn ec_add_complete<F: PrimeField>(
     p: AffinePoint<F>,
     q: AffinePoint<F>,
     cs: &mut ConstraintSystem<F>,
 ) -> AffinePoint<F> {
-    let p_x = p.x;
-    let p_y = p.y;
+    let is_x_equal = p.x.is_equal(q.x);
 
-    let q_x = q.x;
-    let q_y = q.y;
+    let p_is_zero = p.x.is_zero();
+    let q_is_zero = q.x.is_zero();
 
-    let is_x_equal = p_x.is_equal(q_x, cs);
-
-    let p_is_zero = p_x.is_zero(cs);
-    let q_is_zero = q_x.is_zero(cs);
-
-    let both_zeros = p_is_zero.and(q_is_zero, cs);
-    let is_sym = is_x_equal.and(p_y.is_equal(q_y.neg(cs), cs), cs);
+    let both_zeros = p_is_zero & q_is_zero;
+    let is_sym = is_x_equal & (p.y.is_equal(-q.y));
     let is_out_zero = both_zeros.or(is_sym, cs);
 
     let zero = cs.alloc_const(F::ZERO);
 
-    let inc_add = ec_add_incomplete(p, q, cs);
+    let inc_add = ec_add_incomplete(p, q);
 
     let out_x = cs
         .if_then(is_out_zero, zero)
-        .elif(p_is_zero, q_x, cs)
-        .elif(q_is_zero, p_x, cs)
-        .else_then(inc_add.x, cs);
+        .elif(p_is_zero, q.x, cs)
+        .elif(q_is_zero, p.x, cs)
+        .else_then(inc_add.x);
 
     let out_y = cs
         .if_then(is_out_zero, zero)
-        .elif(p_is_zero, q_y, cs)
-        .elif(q_is_zero, p_y, cs)
-        .else_then(inc_add.y, cs);
+        .elif(p_is_zero, q.y, cs)
+        .elif(q_is_zero, p.y, cs)
+        .else_then(inc_add.y);
 
     AffinePoint::new(out_x, out_y)
 }
 
 #[cfg(test)]
 mod tests {
-    use frontend::halo2curves::ff::Field;
-    use frontend::halo2curves::group::Curve;
-    use frontend::halo2curves::secp256k1::Fq;
-    use frontend::halo2curves::secp256k1::Secp256k1Affine;
+    use frontend::ark_secp256k1::Fr;
     use frontend::test_circuit;
     use frontend::wasm_deps::*;
 
-    type F = frontend::halo2curves::secp256k1::Fp;
+    use ark_ec::{AffineRepr, CurveGroup};
+    use frontend::ark_secp256k1::Affine as Secp256k1Affine;
+    type F = frontend::ark_secp256k1::Fq;
 
     use super::*;
 
@@ -94,7 +78,10 @@ mod tests {
                 let p = AffinePoint::<F>::new(p_x, p_y);
                 let q = AffinePoint::<F>::new(q_x, q_y);
 
-                let out = ec_add_incomplete(p, q, cs);
+                let out = ec_add_incomplete(p, q);
+
+                out.x.print_val();
+                out.y.print_val();
 
                 cs.expose_public(out.x);
                 cs.expose_public(out.y);
@@ -103,9 +90,9 @@ mod tests {
         );
 
         let p = Secp256k1Affine::generator();
-        let q = (Secp256k1Affine::generator() * Fq::from(3)).to_affine();
+        let q = (Secp256k1Affine::generator() * Fr::from(3)).into_affine();
 
-        let out = (p + q).to_affine();
+        let out = (p + q).into_affine();
 
         let pub_input = vec![out.x, out.y];
         let priv_input = vec![p.x, p.y, q.x, q.y];
@@ -134,10 +121,10 @@ mod tests {
             F
         );
 
-        let zero = (Secp256k1Affine::generator() * Fq::ZERO).to_affine();
+        let zero = Secp256k1Affine::identity();
 
         let p_nonzero = Secp256k1Affine::generator();
-        let q_nonzero = (Secp256k1Affine::generator() * Fq::from(3)).to_affine();
+        let q_nonzero = (Secp256k1Affine::generator() * Fr::from(3)).into_affine();
 
         let cases = [
             (zero, zero),
@@ -148,7 +135,7 @@ mod tests {
         ];
 
         for (p, q) in cases {
-            let out = (p + q).to_affine();
+            let out = (p + q).into_affine();
             let pub_input = vec![out.x, out.y];
             let priv_input = vec![p.x, p.y, q.x, q.y];
 

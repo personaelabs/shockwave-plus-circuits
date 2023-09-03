@@ -1,14 +1,11 @@
-use frontend::{ConstraintSystem, FieldExt, Wire};
+use frontend::ark_ff::{BigInteger, PrimeField};
+use frontend::{ConstraintSystem, Wire};
 
-fn felt_to_bits<F: FieldExt>(x: F) -> Vec<bool> {
-    x.to_repr()
-        .iter()
-        .map(|byte| (0..8).map(move |i| (byte >> i) & 1u8 == 1u8))
-        .flatten()
-        .collect::<Vec<bool>>()
+fn felt_to_bits<F: PrimeField>(x: F) -> Vec<bool> {
+    x.into_bigint().to_bits_le()
 }
 
-pub fn to_bits<F: FieldExt>(a: Wire<F>, cs: &mut ConstraintSystem<F>) -> Vec<Wire<F>> {
+pub fn to_bits<F: PrimeField>(a: Wire<F>, cs: &mut ConstraintSystem<F>) -> Vec<Wire<F>> {
     let a_bits = felt_to_bits(a.val(cs).unwrap_or(F::ZERO))
         .iter()
         .map(|b| cs.alloc_var(F::from(*b as u64)))
@@ -16,12 +13,13 @@ pub fn to_bits<F: FieldExt>(a: Wire<F>, cs: &mut ConstraintSystem<F>) -> Vec<Wir
 
     let mut sum = cs.alloc_const(F::ZERO);
 
-    let mut pow = F::from(1);
+    let mut pow = F::from(1u32);
     for a_i in &a_bits {
-        let term = a_i.mul_const(pow, cs);
-        sum = sum.add(term, cs);
+        let pow_alloc = cs.alloc_const(pow);
+        let term = *a_i * pow_alloc;
+        sum = sum + term;
 
-        pow *= F::from(2);
+        pow *= F::from(2u32);
     }
 
     sum.assert_equal(a, cs);
@@ -35,17 +33,17 @@ mod tests {
     use frontend::test_circuit;
     use frontend::wasm_deps::*;
 
-    type F = frontend::halo2curves::secp256k1::Fp;
+    type F = frontend::ark_secp256k1::Fq;
 
     #[test]
     pub fn test_felt_to_bits() {
-        let x = 12345;
+        let x = 12345u32;
         let x_felt = F::from(x);
         let bits = felt_to_bits(x_felt);
 
-        for i in 0..64 {
+        for i in 0..(32 - x.leading_zeros()) {
             let expected = (x >> i) & 1 == 1;
-            assert_eq!(bits[i], expected);
+            assert_eq!(bits[i as usize], expected);
         }
     }
 
