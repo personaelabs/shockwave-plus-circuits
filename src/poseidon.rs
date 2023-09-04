@@ -1,11 +1,34 @@
 use frontend::ark_ff::PrimeField;
 use frontend::{ConstraintSystem, Wire};
+use shockwave_plus::PoseidonConstants as PoseidonConstantsNative;
 
 pub struct PoseidonConstants<F: PrimeField> {
     round_constants: Vec<Wire<F>>,
     mds_matrix: Vec<Vec<Wire<F>>>,
     num_full_rounds: usize,
     num_partial_rounds: usize,
+}
+
+impl<F: PrimeField> PoseidonConstants<F> {
+    pub fn from_native_constants(
+        constants: PoseidonConstantsNative<F>,
+        cs: &mut ConstraintSystem<F>,
+    ) -> Self {
+        Self {
+            round_constants: constants
+                .round_keys
+                .iter()
+                .map(|c| cs.alloc_const(*c))
+                .collect(),
+            mds_matrix: constants
+                .mds_matrix
+                .iter()
+                .map(|row| row.iter().map(|c| cs.alloc_const(*c)).collect())
+                .collect(),
+            num_full_rounds: constants.num_full_rounds,
+            num_partial_rounds: constants.num_partial_rounds,
+        }
+    }
 }
 
 pub struct Poseidon<F: PrimeField> {
@@ -38,6 +61,9 @@ impl<F: PrimeField> Poseidon<F> {
     }
 
     pub fn reset(&mut self) {
+        let cs = self.cs();
+        let tag = cs.alloc_const(F::from(3u32));
+        self.state = [tag, cs.one(), cs.one()];
         self.pos = 0;
     }
 
@@ -132,6 +158,7 @@ impl<F: PrimeField> Poseidon<F> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ark_std::{end_timer, start_timer};
     use shockwave_plus::poseidon_constants::secp256k1::{
         MDS_MATRIX, NUM_FULL_ROUNDS, NUM_PARTIAL_ROUNDS, ROUND_CONSTANTS,
     };
@@ -157,7 +184,6 @@ mod tests {
 
             let mut poseidon_chip = Poseidon::<Fp>::new(cs, constants);
             let result = poseidon_chip.hash(i1, i2);
-
             cs.expose_public(result);
         };
 
@@ -176,7 +202,9 @@ mod tests {
 
         let mut cs = ConstraintSystem::new();
         let pub_input = vec![expected_hash];
+        let witness_gen_timer = start_timer!(|| "Witness generation");
         let witness = cs.gen_witness(synthesizer, &pub_input, &priv_input);
+        end_timer!(witness_gen_timer);
 
         assert!(cs.is_sat(&witness, &pub_input, synthesizer));
     }
