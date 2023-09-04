@@ -3,11 +3,12 @@ use frontend::Wire;
 
 pub mod add;
 pub mod double;
+pub mod mul;
 
 #[derive(Copy, Clone)]
 pub struct AffinePoint<F: PrimeField> {
-    x: Wire<F>,
-    y: Wire<F>,
+    pub x: Wire<F>,
+    pub y: Wire<F>,
 }
 
 impl<F: PrimeField> AffinePoint<F> {
