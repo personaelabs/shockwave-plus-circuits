@@ -94,7 +94,7 @@ mod tests {
 
         let mut cs = ConstraintSystem::<Fp>::new();
         let witness = cs.gen_witness(add_incomplete_circuit, &pub_input, &priv_input);
-        cs.is_sat(&witness, &pub_input, synthesizer);
+        assert!(cs.is_sat(&witness, &pub_input, synthesizer));
     }
 
     fn add_complete_circuit<F: PrimeField>(cs: &mut ConstraintSystem<F>) {
@@ -137,7 +137,7 @@ mod tests {
             let priv_input = vec![p.x, p.y, q.x, q.y];
 
             let witness = cs.gen_witness(synthesizer, &pub_input, &priv_input);
-            cs.is_sat(&witness, &pub_input, synthesizer);
+            assert!(cs.is_sat(&witness, &pub_input, synthesizer));
         }
     }
 }
