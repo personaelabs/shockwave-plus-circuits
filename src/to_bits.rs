@@ -1,11 +1,12 @@
 use frontend::ark_ff::{BigInteger, PrimeField};
+use frontend::FieldGC;
 use frontend::{ConstraintSystem, Wire};
 
-fn felt_to_bits<F: PrimeField>(x: F) -> Vec<bool> {
+fn felt_to_bits<F: FieldGC>(x: F) -> Vec<bool> {
     x.into_bigint().to_bits_le()
 }
 
-pub fn to_bits<F: PrimeField>(a: Wire<F>, cs: &mut ConstraintSystem<F>) -> Vec<Wire<F>> {
+pub fn to_bits<F: FieldGC>(a: Wire<F>, cs: &mut ConstraintSystem<F>) -> Vec<Wire<F>> {
     let a_bits = felt_to_bits(a.val(cs).unwrap_or(F::ZERO))
         .iter()
         .map(|b| cs.alloc_var(F::from(*b as u64)))
@@ -25,6 +26,19 @@ pub fn to_bits<F: PrimeField>(a: Wire<F>, cs: &mut ConstraintSystem<F>) -> Vec<W
     sum.assert_equal(a, cs);
 
     a_bits
+}
+
+pub fn from_bits<F: FieldGC>(bits: &[Wire<F>]) -> Wire<F> {
+    let cs = bits[0].cs();
+    let mut sum = cs.alloc_const(F::ZERO);
+
+    let mut pow = F::from(1u32);
+    for bit in bits {
+        sum += *bit * cs.alloc_const(pow);
+        pow *= F::from(2u32);
+    }
+
+    sum
 }
 
 #[cfg(test)]

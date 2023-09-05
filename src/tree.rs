@@ -1,8 +1,8 @@
-use frontend::{ark_ff::PrimeField, ConstraintSystem, Wire};
+use frontend::{ConstraintSystem, FieldGC, Wire};
 
 use crate::Poseidon;
 
-pub fn verify_merkle_proof<F: PrimeField>(
+pub fn verify_merkle_proof<F: FieldGC>(
     leaf: Wire<F>,
     siblings: &[Wire<F>],
     path_indices: &[Wire<F>],
@@ -24,11 +24,10 @@ pub fn verify_merkle_proof<F: PrimeField>(
 #[cfg(test)]
 mod tests {
     use crate::PoseidonConstants;
+    use shockwave_plus::PoseidonCurve;
 
     use super::*;
-    use shockwave_plus::poseidon_constants::secp256k1::{
-        MDS_MATRIX, NUM_FULL_ROUNDS, NUM_PARTIAL_ROUNDS, ROUND_CONSTANTS,
-    };
+
     use shockwave_plus::Poseidon as PoseidonNative;
     use shockwave_plus::PoseidonConstants as PoseidonConstantsNative;
 
@@ -37,25 +36,16 @@ mod tests {
 
     #[test]
     pub fn test_verify_merkle_proof() {
-        let native_constants = PoseidonConstantsNative::new(
-            ROUND_CONSTANTS.to_vec(),
-            vec![
-                MDS_MATRIX[0].to_vec(),
-                MDS_MATRIX[1].to_vec(),
-                MDS_MATRIX[2].to_vec(),
-            ],
-            NUM_FULL_ROUNDS,
-            NUM_PARTIAL_ROUNDS,
-        );
-
-        let mut poseidon = PoseidonNative::new(native_constants.clone());
+        let poseidon_constants = PoseidonConstantsNative::new(PoseidonCurve::SECP256K1);
+        let mut poseidon = PoseidonNative::new(PoseidonCurve::SECP256K1);
 
         let synthesizer = |cs: &mut ConstraintSystem<Fp>| {
             let leaf = cs.alloc_priv_input();
             let siblings = cs.alloc_priv_inputs(TREE_DEPTH);
             let path_indices = cs.alloc_priv_inputs(TREE_DEPTH);
 
-            let constants = PoseidonConstants::from_native_constants(native_constants.clone(), cs);
+            let constants =
+                PoseidonConstants::from_native_constants(poseidon_constants.clone(), cs);
 
             let mut poseidon_chip = Poseidon::<Fp>::new(cs, constants);
 

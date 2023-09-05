@@ -1,11 +1,11 @@
 use super::AffinePoint;
-use frontend::ark_ff::PrimeField;
 use frontend::ConstraintSystem;
+use frontend::FieldGC;
 
 // Incomplete addition for short-Weierstrass curves.
 // We follow the specification from the halo2 book;
 // https://zcash.github.io/halo2/design/gadgets/sinsemilla.html?highlight=incomplete#incomplete-addition
-pub fn ec_add_incomplete<F: PrimeField>(p: AffinePoint<F>, q: AffinePoint<F>) -> AffinePoint<F> {
+pub fn ec_add_incomplete<F: FieldGC>(p: AffinePoint<F>, q: AffinePoint<F>) -> AffinePoint<F> {
     let dx = p.x - q.x;
     let dy = p.y - q.y;
 
@@ -20,7 +20,7 @@ pub fn ec_add_incomplete<F: PrimeField>(p: AffinePoint<F>, q: AffinePoint<F>) ->
 // Complete addition for short-Weierstrass curves.
 // We follow the specification from the halo2 book.
 // https://zcash.github.io/halo2/design/gadgets/ecc/addition.html#complete-addition
-pub fn ec_add_complete<F: PrimeField>(
+pub fn ec_add_complete<F: FieldGC>(
     p: AffinePoint<F>,
     q: AffinePoint<F>,
     cs: &mut ConstraintSystem<F>,
@@ -64,7 +64,7 @@ mod tests {
 
     use super::*;
 
-    fn add_incomplete_circuit<F: PrimeField>(cs: &mut ConstraintSystem<F>) {
+    fn add_incomplete_circuit<F: FieldGC>(cs: &mut ConstraintSystem<F>) {
         let p_x = cs.alloc_priv_input();
         let p_y = cs.alloc_priv_input();
 
@@ -97,7 +97,7 @@ mod tests {
         assert!(cs.is_sat(&witness, &pub_input, synthesizer));
     }
 
-    fn add_complete_circuit<F: PrimeField>(cs: &mut ConstraintSystem<F>) {
+    fn add_complete_circuit<F: FieldGC>(cs: &mut ConstraintSystem<F>) {
         let p_x = cs.alloc_priv_input();
         let p_y = cs.alloc_priv_input();
 

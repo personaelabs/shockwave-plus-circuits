@@ -1,15 +1,15 @@
-use frontend::ark_ff::PrimeField;
+use frontend::FieldGC;
 use frontend::{ConstraintSystem, Wire};
 use shockwave_plus::PoseidonConstants as PoseidonConstantsNative;
 
-pub struct PoseidonConstants<F: PrimeField> {
+pub struct PoseidonConstants<F: FieldGC> {
     round_constants: Vec<Wire<F>>,
     mds_matrix: Vec<Vec<Wire<F>>>,
     num_full_rounds: usize,
     num_partial_rounds: usize,
 }
 
-impl<F: PrimeField> PoseidonConstants<F> {
+impl<F: FieldGC> PoseidonConstants<F> {
     pub fn from_native_constants(
         constants: PoseidonConstantsNative<F>,
         cs: &mut ConstraintSystem<F>,
@@ -31,14 +31,14 @@ impl<F: PrimeField> PoseidonConstants<F> {
     }
 }
 
-pub struct Poseidon<F: PrimeField> {
+pub struct Poseidon<F: FieldGC> {
     state: [Wire<F>; 3],
     pos: usize,
     constants: PoseidonConstants<F>,
     cs: *mut ConstraintSystem<F>,
 }
 
-impl<F: PrimeField> Poseidon<F> {
+impl<F: FieldGC> Poseidon<F> {
     pub fn new(cs_ptr: *mut ConstraintSystem<F>, constants: PoseidonConstants<F>) -> Self {
         let cs = unsafe { &mut *cs_ptr };
         let tag = cs.alloc_const(F::from(3u32));
@@ -159,11 +159,9 @@ impl<F: PrimeField> Poseidon<F> {
 mod tests {
     use super::*;
     use ark_std::{end_timer, start_timer};
-    use shockwave_plus::poseidon_constants::secp256k1::{
-        MDS_MATRIX, NUM_FULL_ROUNDS, NUM_PARTIAL_ROUNDS, ROUND_CONSTANTS,
-    };
     use shockwave_plus::Poseidon as PoseidonNative;
     use shockwave_plus::PoseidonConstants as PoseidonConstantsNative;
+    use shockwave_plus::PoseidonCurve;
     type Fp = frontend::ark_secp256k1::Fq;
 
     #[test]
@@ -172,15 +170,8 @@ mod tests {
             let i1 = cs.alloc_priv_input();
             let i2 = cs.alloc_priv_input();
 
-            let constants = PoseidonConstants {
-                round_constants: ROUND_CONSTANTS.iter().map(|c| cs.alloc_const(*c)).collect(),
-                mds_matrix: MDS_MATRIX
-                    .iter()
-                    .map(|row| row.iter().map(|c| cs.alloc_const(*c)).collect())
-                    .collect(),
-                num_full_rounds: NUM_FULL_ROUNDS,
-                num_partial_rounds: NUM_PARTIAL_ROUNDS,
-            };
+            let constants_native = PoseidonConstantsNative::<Fp>::new(PoseidonCurve::SECP256K1);
+            let constants = PoseidonConstants::from_native_constants(constants_native, cs);
 
             let mut poseidon_chip = Poseidon::<Fp>::new(cs, constants);
             let result = poseidon_chip.hash(i1, i2);
@@ -188,16 +179,7 @@ mod tests {
         };
 
         let priv_input = [Fp::from(1234567), Fp::from(109987)];
-        let mut poseidon = PoseidonNative::new(PoseidonConstantsNative::new(
-            ROUND_CONSTANTS.to_vec(),
-            vec![
-                MDS_MATRIX[0].to_vec(),
-                MDS_MATRIX[1].to_vec(),
-                MDS_MATRIX[2].to_vec(),
-            ],
-            NUM_FULL_ROUNDS,
-            NUM_PARTIAL_ROUNDS,
-        ));
+        let mut poseidon = PoseidonNative::new(PoseidonCurve::SECP256K1);
         let expected_hash = poseidon.hash(&priv_input);
 
         let mut cs = ConstraintSystem::new();

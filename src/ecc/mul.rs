@@ -3,14 +3,14 @@ use super::{
     double::ec_double,
     AffinePoint,
 };
-use frontend::ark_ff::PrimeField;
+use frontend::FieldGC;
 use frontend::{ConstraintSystem, Wire};
 
 //
 // Variable-base scalar multiplication addition for secp256k1.
 // We follow the specification from the halo2 book;
 // https://zcash.github.io/halo2/design/gadgets/ecc/var-base-scalar-mul.html
-pub fn ec_mul<F: PrimeField>(
+pub fn ec_mul<F: FieldGC>(
     t: AffinePoint<F>,
     k_bits: &[Wire<F>],
     cs: &mut ConstraintSystem<F>,
@@ -50,6 +50,7 @@ pub fn ec_mul<F: PrimeField>(
 #[cfg(test)]
 mod tests {
     use frontend::ark_ff::BigInteger;
+    use frontend::ark_ff::PrimeField;
     use frontend::ark_secp256k1::Fr;
     use std::str::FromStr;
 

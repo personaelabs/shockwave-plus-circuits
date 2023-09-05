@@ -1,9 +1,9 @@
 use super::AffinePoint;
-use frontend::ark_ff::PrimeField;
 use frontend::ConstraintSystem;
+use frontend::FieldGC;
 
 // Doubling for short-Weierstrass curves
-pub fn ec_double<F: PrimeField>(p: AffinePoint<F>, cs: &mut ConstraintSystem<F>) -> AffinePoint<F> {
+pub fn ec_double<F: FieldGC>(p: AffinePoint<F>, cs: &mut ConstraintSystem<F>) -> AffinePoint<F> {
     // lambda = (3 * x^2) / (2 * y)
     let lambda =
         (cs.alloc_const(F::from(3u32)) * (p.x * p.x)) / (cs.alloc_const(F::from(2u32)) * p.y);

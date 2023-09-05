@@ -1,3 +1,4 @@
+mod bitops;
 mod ecc;
 mod poseidon;
 mod to_bits;
