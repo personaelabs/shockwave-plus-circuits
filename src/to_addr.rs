@@ -3,7 +3,7 @@ use frontend::Wire;
 use keccak::{RATE, RC, RHO_OFFSETS, ROUNDS};
 use num_bigint::BigUint;
 
-use crate::bitops::{and_64, from_bits, not_64, rotate_left_64, xor_64};
+use crate::bitops::{from_bits, not_a_and_b_64, rotate_left_64, xor_64};
 
 pub fn to_addr<F: FieldGC>(input: [Wire<F>; 512]) -> Wire<F> {
     let cs = input[0].cs();
@@ -97,8 +97,8 @@ pub fn to_addr<F: FieldGC>(input: [Wire<F>; 512]) -> Wire<F> {
                 let index = x + y * 5;
                 state[index] = xor_64(
                     state_cloned[index],
-                    and_64(
-                        not_64(state_cloned[(x + 1) % 5 + y * 5]),
+                    not_a_and_b_64(
+                        state_cloned[(x + 1) % 5 + y * 5],
                         state_cloned[(x + 2) % 5 + y * 5],
                     ),
                 );
@@ -124,8 +124,8 @@ pub fn to_addr<F: FieldGC>(input: [Wire<F>; 512]) -> Wire<F> {
 
 #[cfg(test)]
 mod tests {
-
     use frontend::ark_ff::Field;
+    use frontend::wasm_deps::*;
     use frontend::ConstraintSystem;
     use keccak::keccak256;
 
@@ -175,6 +175,7 @@ mod tests {
 
         let witness = cs.gen_witness(synthesizer, &pub_input, &priv_input);
 
-        assert!(cs.is_sat(&witness, &pub_input, synthesizer));
+        cs.set_constraints(&synthesizer);
+        assert!(cs.is_sat(&witness, &pub_input));
     }
 }

@@ -12,22 +12,24 @@ pub fn xor_64<F: FieldGC>(a: [Wire<F>; 64], b: [Wire<F>; 64]) -> [Wire<F>; 64] {
     out
 }
 
-pub fn not_64<F: FieldGC>(a: [Wire<F>; 64]) -> [Wire<F>; 64] {
-    let cs = a[0].cs();
-    let mut out = [cs.one(); 64];
-    for i in 0..64 {
-        out[i] = a[i].not(cs);
-    }
+// (!a) & b
+pub fn not_a_and_b<F: FieldGC>(a: Wire<F>, b: Wire<F>) -> Wire<F> {
+    let cs = a.cs();
 
-    out
+    // (-a + 1) * b = c
+    let deg_2_a = [(a, -F::ONE), (cs.one(), F::ONE)];
+    let deg_2_b = [(b, F::ONE)];
+    let deg_2_c = [];
+
+    cs.deg_2_comb(&deg_2_a, &deg_2_b, &deg_2_c)
 }
 
-pub fn and_64<F: FieldGC>(a: [Wire<F>; 64], b: [Wire<F>; 64]) -> [Wire<F>; 64] {
+pub fn not_a_and_b_64<F: FieldGC>(a: [Wire<F>; 64], b: [Wire<F>; 64]) -> [Wire<F>; 64] {
     let cs = a[0].cs();
     assert_eq!(a.len(), b.len());
     let mut out = [cs.one(); 64];
     for i in 0..64 {
-        out[i] = a[i].and(b[i], cs);
+        out[i] = not_a_and_b(a[i], b[i]);
     }
 
     out
@@ -44,21 +46,28 @@ pub fn rotate_left_64<F: FieldGC>(a: [Wire<F>; 64], n: usize) -> [Wire<F>; 64] {
 
 pub fn bit_xor<F: FieldGC>(a: Wire<F>, b: Wire<F>) -> Wire<F> {
     let cs = a.cs();
-    a + b - cs.mul_const(a * b, F::from(2u32))
+
+    // -2a * b + a + b = c
+    let deg_2_a = [(a, -F::from(2u32))];
+    let deg_2_b = [(b, F::ONE)];
+    let deg_2_c = [(a, F::ONE), (b, F::ONE)];
+
+    cs.deg_2_comb(&deg_2_a, &deg_2_b, &deg_2_c)
 }
 
 // Interprets the bits as LSB first.
 pub fn from_bits<F: FieldGC>(bits: &[Wire<F>]) -> Wire<F> {
     let cs = bits[0].cs();
-    let mut sum = cs.alloc_const(F::ZERO);
+
+    let mut terms = Vec::with_capacity(64);
 
     let mut pow = F::from(1u32);
     for bit in bits {
-        sum += *bit * cs.alloc_const(pow);
+        terms.push((cs.mul_const(*bit, pow), true));
         pow *= F::from(2u32);
     }
 
-    sum
+    cs.sum(&terms)
 }
 
 #[cfg(test)]
@@ -87,6 +96,8 @@ mod tests {
 
         let mut cs = ConstraintSystem::new();
         let witness = cs.gen_witness(synthesizer, &pub_input, &priv_input);
-        assert!(cs.is_sat(&witness, &pub_input, synthesizer));
+
+        cs.set_constraints(&synthesizer);
+        assert!(cs.is_sat(&witness, &pub_input));
     }
 }
