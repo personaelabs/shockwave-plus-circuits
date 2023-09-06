@@ -94,7 +94,9 @@ mod tests {
 
         let mut cs = ConstraintSystem::<Fp>::new();
         let witness = cs.gen_witness(add_incomplete_circuit, &pub_input, &priv_input);
-        assert!(cs.is_sat(&witness, &pub_input, synthesizer));
+
+        cs.set_constraints(&synthesizer);
+        assert!(cs.is_sat(&witness, &pub_input));
     }
 
     fn add_complete_circuit<F: FieldGC>(cs: &mut ConstraintSystem<F>) {
@@ -110,7 +112,7 @@ mod tests {
         let out = ec_add_complete(p, q, cs);
 
         cs.expose_public(out.x);
-        cs.expose_public(out.y);
+        cs.expose_public(out.x);
     }
 
     #[test]
@@ -119,8 +121,8 @@ mod tests {
 
         let zero = Secp256k1Affine::identity();
 
-        let p_nonzero = Secp256k1Affine::generator();
-        let q_nonzero = (Secp256k1Affine::generator() * Fr::from(3)).into_affine();
+        let p_nonzero = (Secp256k1Affine::generator() * Fr::from(124221521521u64)).into_affine();
+        let q_nonzero = (Secp256k1Affine::generator() * Fr::from(11321153521u64)).into_affine();
 
         let cases = [
             (zero, zero),
@@ -131,13 +133,16 @@ mod tests {
         ];
 
         let mut cs = ConstraintSystem::<Fp>::new();
+        cs.set_constraints(&synthesizer);
+
         for (p, q) in cases {
             let out = (p + q).into_affine();
             let pub_input = vec![out.x, out.y];
             let priv_input = vec![p.x, p.y, q.x, q.y];
 
             let witness = cs.gen_witness(synthesizer, &pub_input, &priv_input);
-            assert!(cs.is_sat(&witness, &pub_input, synthesizer));
+
+            assert!(cs.is_sat(&witness, &pub_input));
         }
     }
 }

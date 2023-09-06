@@ -50,6 +50,7 @@ mod tests {
         let mut cs = ConstraintSystem::new();
         let witness = cs.gen_witness(synthesizer, &pub_input, &priv_input);
 
-        assert!(cs.is_sat(&witness, &pub_input, synthesizer));
+        cs.set_constraints(&synthesizer);
+        assert!(cs.is_sat(&witness, &pub_input));
     }
 }

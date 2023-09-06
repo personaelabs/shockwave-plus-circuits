@@ -159,23 +159,42 @@ impl<F: FieldGC> Poseidon<F> {
 mod tests {
     use super::*;
     use ark_std::{end_timer, start_timer};
+    use frontend::circuit;
+    use frontend::wasm_deps::*;
     use shockwave_plus::Poseidon as PoseidonNative;
     use shockwave_plus::PoseidonConstants as PoseidonConstantsNative;
     use shockwave_plus::PoseidonCurve;
+
     type Fp = frontend::ark_secp256k1::Fq;
+
+    fn poseidon_circuit<F: FieldGC>(cs: &mut ConstraintSystem<F>) {
+        let i1 = cs.alloc_priv_input();
+        let i2 = cs.alloc_priv_input();
+
+        let constants_native = PoseidonConstantsNative::<F>::new(PoseidonCurve::SECP256K1);
+        let constants = PoseidonConstants::from_native_constants(constants_native, cs);
+
+        let mut poseidon_chip = Poseidon::<F>::new(cs, constants);
+        let n = 100;
+        for _ in 0..n {
+            poseidon_chip.hash(i1, i2);
+            poseidon_chip.reset();
+        }
+        let result = poseidon_chip.hash(i1, i2);
+        cs.expose_public(result);
+    }
+
+    circuit!(
+        |cs: &mut ConstraintSystem<Fp>| {
+            poseidon_circuit(cs);
+        },
+        Fp
+    );
 
     #[test]
     fn test_poseidon() {
         let synthesizer = |cs: &mut ConstraintSystem<Fp>| {
-            let i1 = cs.alloc_priv_input();
-            let i2 = cs.alloc_priv_input();
-
-            let constants_native = PoseidonConstantsNative::<Fp>::new(PoseidonCurve::SECP256K1);
-            let constants = PoseidonConstants::from_native_constants(constants_native, cs);
-
-            let mut poseidon_chip = Poseidon::<Fp>::new(cs, constants);
-            let result = poseidon_chip.hash(i1, i2);
-            cs.expose_public(result);
+            poseidon_circuit(cs);
         };
 
         let priv_input = [Fp::from(1234567), Fp::from(109987)];
@@ -188,6 +207,7 @@ mod tests {
         let witness = cs.gen_witness(synthesizer, &pub_input, &priv_input);
         end_timer!(witness_gen_timer);
 
-        assert!(cs.is_sat(&witness, &pub_input, synthesizer));
+        cs.set_constraints(&synthesizer);
+        assert!(cs.is_sat(&witness, &pub_input));
     }
 }
