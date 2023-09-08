@@ -6,13 +6,25 @@ use frontend::FieldGC;
 // We follow the specification from the halo2 book;
 // https://zcash.github.io/halo2/design/gadgets/sinsemilla.html?highlight=incomplete#incomplete-addition
 pub fn ec_add_incomplete<F: FieldGC>(p: AffinePoint<F>, q: AffinePoint<F>) -> AffinePoint<F> {
+    let cs = p.x.cs();
+
     let dx = p.x - q.x;
     let dy = p.y - q.y;
 
     let lambda = dy.div_or_zero(dx);
 
-    let out_x = (lambda * lambda) - p.x - q.x;
-    let out_y = lambda * (p.x - out_x) - p.y;
+    // out_x = (lambda * lambda) - p.x - q.x;
+    let out_x = cs.deg_2_comb(
+        &[(lambda, F::ONE)],
+        &[(lambda, F::ONE)],
+        &[(p.x, -F::ONE), (q.x, -F::ONE)],
+    );
+    // out_y = lambda * (p.x - out_x) - p.y;
+    let out_y = cs.deg_2_comb(
+        &[(lambda, F::ONE)],
+        &[(p.x, F::ONE), (out_x, -F::ONE)],
+        &[(p.y, -F::ONE)],
+    );
 
     AffinePoint::new(out_x, out_y)
 }
@@ -96,6 +108,8 @@ mod tests {
         let witness = cs.gen_witness(add_incomplete_circuit, &pub_input, &priv_input);
 
         cs.set_constraints(&synthesizer);
+
+        println!("num constraints: {:?}", cs.num_constraints);
         assert!(cs.is_sat(&witness, &pub_input));
     }
 
@@ -134,6 +148,9 @@ mod tests {
 
         let mut cs = ConstraintSystem::<Fp>::new();
         cs.set_constraints(&synthesizer);
+
+        println!("num constraints: {:?}", cs.num_constraints);
+        println!("num variables: {:?}", cs.num_vars());
 
         for (p, q) in cases {
             let out = (p + q).into_affine();

@@ -84,7 +84,7 @@ impl<F: FieldGC> Poseidon<F> {
                 if j == 0 {
                     tmp = val[j] * *element;
                 } else {
-                    tmp = tmp + (val[j] * *element);
+                    tmp = self.cs().mul_add(val[j], *element, tmp);
                 }
             }
             result[i] = tmp;
