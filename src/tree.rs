@@ -1,13 +1,13 @@
 use frontend::{ConstraintSystem, FieldGC, Wire};
 
-use crate::Poseidon;
+use crate::PoseidonChip;
 
 pub fn verify_merkle_proof<F: FieldGC>(
     leaf: Wire<F>,
     siblings: &[Wire<F>],
     path_indices: &[Wire<F>],
     cs: &mut ConstraintSystem<F>,
-    poseidon: &mut Poseidon<F>,
+    poseidon: &mut PoseidonChip<F>,
 ) -> Wire<F> {
     let mut node = leaf;
     for (sibling, path) in siblings.iter().zip(path_indices.iter()) {
@@ -23,31 +23,27 @@ pub fn verify_merkle_proof<F: FieldGC>(
 
 #[cfg(test)]
 mod tests {
-    use crate::PoseidonConstants;
     use shockwave_plus::PoseidonCurve;
 
     use super::*;
 
-    use shockwave_plus::Poseidon as PoseidonNative;
-    use shockwave_plus::PoseidonConstants as PoseidonConstantsNative;
+    use shockwave_plus::Poseidon;
+    use shockwave_plus::PoseidonConstants;
 
     type Fp = frontend::ark_secp256k1::Fq;
     const TREE_DEPTH: usize = 5;
 
     #[test]
     pub fn test_verify_merkle_proof() {
-        let poseidon_constants = PoseidonConstantsNative::new(PoseidonCurve::SECP256K1);
-        let mut poseidon = PoseidonNative::new(PoseidonCurve::SECP256K1);
+        let mut poseidon = Poseidon::new(PoseidonCurve::SECP256K1);
 
         let synthesizer = |cs: &mut ConstraintSystem<Fp>| {
             let leaf = cs.alloc_priv_input();
             let siblings = cs.alloc_priv_inputs(TREE_DEPTH);
             let path_indices = cs.alloc_priv_inputs(TREE_DEPTH);
 
-            let constants =
-                PoseidonConstants::from_native_constants(poseidon_constants.clone(), cs);
-
-            let mut poseidon_chip = Poseidon::<Fp>::new(cs, constants);
+            let poseidon_constants = PoseidonConstants::new(PoseidonCurve::SECP256K1);
+            let mut poseidon_chip = PoseidonChip::<Fp>::new(cs, poseidon_constants);
 
             let node = verify_merkle_proof(leaf, &siblings, &path_indices, cs, &mut poseidon_chip);
             cs.expose_public(node);

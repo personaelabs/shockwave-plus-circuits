@@ -1,5 +1,6 @@
 use frontend::FieldGC;
 use frontend::Wire;
+use shockwave_plus::ark_ff::BigInteger;
 
 pub fn xor_64<F: FieldGC>(a: [Wire<F>; 64], b: [Wire<F>; 64]) -> [Wire<F>; 64] {
     let cs = a[0].cs();
@@ -68,6 +69,36 @@ pub fn from_bits<F: FieldGC>(bits: &[Wire<F>]) -> Wire<F> {
     }
 
     cs.sum(&terms)
+}
+
+pub fn to_bits<F: FieldGC>(a: Wire<F>) -> Vec<Wire<F>> {
+    let cs = a.cs();
+
+    let field_bits = 256;
+    let mut bits = vec![cs.one(); 256];
+
+    if cs.is_witness_gen() {
+        let a_assigned = cs.wires[a.index];
+        let a_bits_native = a_assigned.into_bigint().to_bits_be();
+        for a_i in 0..field_bits {
+            bits[a_i] = cs.alloc_const(F::from(a_bits_native[a_i] as u64));
+        }
+    }
+
+    let mut sum = cs.alloc_const(F::ZERO);
+
+    let mut pow = F::ONE;
+    for a_i in &bits {
+        let pow_alloc = cs.alloc_const(pow);
+        let term = *a_i * pow_alloc;
+        sum += term;
+
+        pow *= F::from(2u32);
+    }
+
+    cs.assert_equal(a, sum, "to_bits failed");
+
+    bits
 }
 
 #[cfg(test)]

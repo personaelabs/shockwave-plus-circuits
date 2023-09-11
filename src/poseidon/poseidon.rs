@@ -1,44 +1,16 @@
 use frontend::FieldGC;
 use frontend::{ConstraintSystem, Wire};
-use shockwave_plus::PoseidonConstants as PoseidonConstantsNative;
+use shockwave_plus::PoseidonConstants;
 
-pub struct PoseidonConstants<F: FieldGC> {
-    round_constants: Vec<Wire<F>>,
-    mds_matrix: Vec<Vec<Wire<F>>>,
-    num_full_rounds: usize,
-    num_partial_rounds: usize,
-}
-
-impl<F: FieldGC> PoseidonConstants<F> {
-    pub fn from_native_constants(
-        constants: PoseidonConstantsNative<F>,
-        cs: &mut ConstraintSystem<F>,
-    ) -> Self {
-        Self {
-            round_constants: constants
-                .round_keys
-                .iter()
-                .map(|c| cs.alloc_const(*c))
-                .collect(),
-            mds_matrix: constants
-                .mds_matrix
-                .iter()
-                .map(|row| row.iter().map(|c| cs.alloc_const(*c)).collect())
-                .collect(),
-            num_full_rounds: constants.num_full_rounds,
-            num_partial_rounds: constants.num_partial_rounds,
-        }
-    }
-}
-
-pub struct Poseidon<F: FieldGC> {
-    state: [Wire<F>; 3],
-    pos: usize,
+#[derive(Clone)]
+pub struct PoseidonChip<F: FieldGC> {
+    pub state: [Wire<F>; 3],
+    pub pos: usize,
     constants: PoseidonConstants<F>,
     cs: *mut ConstraintSystem<F>,
 }
 
-impl<F: FieldGC> Poseidon<F> {
+impl<F: FieldGC> PoseidonChip<F> {
     pub fn new(cs_ptr: *mut ConstraintSystem<F>, constants: PoseidonConstants<F>) -> Self {
         let cs = unsafe { &mut *cs_ptr };
         let tag = cs.alloc_const(F::from(3u32));
@@ -67,47 +39,47 @@ impl<F: FieldGC> Poseidon<F> {
         self.pos = 0;
     }
 
-    fn add_constants(&mut self) {
-        // Add round constants
-        for i in 0..self.state.len() {
-            self.state[i] = self.state[i] + self.constants.round_constants[self.pos + i];
-        }
-    }
-
     // MDS matrix multiplication
     fn matrix_mul(&mut self) {
         let mut result = [self.cs().one(); 3];
 
-        for (i, val) in self.constants.mds_matrix.iter().enumerate() {
-            let mut tmp = self.cs().one();
-            for (j, element) in self.state.iter().enumerate() {
-                if j == 0 {
-                    tmp = val[j] * *element;
-                } else {
-                    tmp = self.cs().mul_add(val[j], *element, tmp);
-                }
-            }
-            result[i] = tmp;
+        for (i, matrix) in self.constants.mds_matrix.iter().enumerate() {
+            let deg2_comb_a = [
+                (self.state[0], matrix[0]),
+                (self.state[1], matrix[1]),
+                (self.state[2], matrix[2]),
+            ];
+
+            let deg2_comb_b = [(self.cs().one(), F::ONE)];
+            let deg_2_comb_c = [];
+            result[i] = self
+                .cs()
+                .deg_2_comb(&deg2_comb_a, &deg2_comb_b, &deg_2_comb_c);
         }
 
         self.state = result;
     }
 
-    fn s_box(&mut self, x: Wire<F>) -> Wire<F> {
-        let square = x * x;
-        let quadruple = square * square;
-        quadruple * x
-    }
-
     fn full_round(&mut self) {
         let t = self.state.len();
 
-        // Apply s-box
-        self.add_constants();
-
-        // S-boxes
+        // Add round constants and apply the S-boxes
         for i in 0..t {
-            self.state[i] = self.s_box(self.state[i]);
+            let deg2_comb_a = [
+                (self.state[i], F::ONE),
+                (self.cs().one(), self.constants.round_keys[self.pos + i]),
+            ];
+
+            let deg2_comb_b = deg2_comb_a;
+
+            let square = self.cs().deg_2_comb(&deg2_comb_a, &deg2_comb_b, &[]);
+            let quadruple = square * square;
+
+            let deg2_comb_a_2 = [(quadruple, F::ONE)];
+
+            let deg2_comb_b = deg2_comb_a;
+
+            self.state[i] = self.cs().deg_2_comb(&deg2_comb_a_2, &deg2_comb_b, &[]);
         }
 
         self.matrix_mul();
@@ -117,10 +89,29 @@ impl<F: FieldGC> Poseidon<F> {
     }
 
     fn partial_round(&mut self) {
-        self.add_constants();
+        // Apply the round constants
+        for i in 1..3 {
+            self.state[i] = self
+                .cs()
+                .add_const(self.state[i], self.constants.round_keys[self.pos + i]);
+        }
 
         // S-box
-        self.state[0] = self.s_box(self.state[0]);
+        let deg2_comb_a = [
+            (self.state[0], F::ONE),
+            (self.cs().one(), self.constants.round_keys[self.pos + 0]),
+        ];
+
+        let deg2_comb_b = deg2_comb_a;
+
+        let square = self.cs().deg_2_comb(&deg2_comb_a, &deg2_comb_b, &[]);
+        let quadruple = square * square;
+
+        let deg2_comb_a_2 = [(quadruple, F::ONE)];
+
+        let deg2_comb_b = deg2_comb_a;
+
+        self.state[0] = self.cs().deg_2_comb(&deg2_comb_a_2, &deg2_comb_b, &[]);
 
         self.matrix_mul();
 
@@ -128,10 +119,7 @@ impl<F: FieldGC> Poseidon<F> {
         self.pos += self.state.len();
     }
 
-    pub fn hash(&mut self, i1: Wire<F>, i2: Wire<F>) -> Wire<F> {
-        self.state[1] = i1;
-        self.state[2] = i2;
-
+    pub fn permute(&mut self) {
         // ########################
         // First half of the full rounds
         // ########################
@@ -150,6 +138,13 @@ impl<F: FieldGC> Poseidon<F> {
         for _ in 0..self.constants.num_full_rounds / 2 {
             self.full_round();
         }
+    }
+
+    pub fn hash(&mut self, i1: Wire<F>, i2: Wire<F>) -> Wire<F> {
+        self.state[1] = i1;
+        self.state[2] = i2;
+
+        self.permute();
 
         self.state[1]
     }
@@ -161,8 +156,8 @@ mod tests {
     use ark_std::{end_timer, start_timer};
     use frontend::circuit;
     use frontend::wasm_deps::*;
-    use shockwave_plus::Poseidon as PoseidonNative;
-    use shockwave_plus::PoseidonConstants as PoseidonConstantsNative;
+    use shockwave_plus::Poseidon;
+    use shockwave_plus::PoseidonConstants;
     use shockwave_plus::PoseidonCurve;
 
     type Fp = frontend::ark_secp256k1::Fq;
@@ -171,11 +166,11 @@ mod tests {
         let i1 = cs.alloc_priv_input();
         let i2 = cs.alloc_priv_input();
 
-        let constants_native = PoseidonConstantsNative::<F>::new(PoseidonCurve::SECP256K1);
-        let constants = PoseidonConstants::from_native_constants(constants_native, cs);
+        let constants_native = PoseidonConstants::<F>::new(PoseidonCurve::SECP256K1);
+        // let constants = PoseidonChipConstants::from_native_constants(constants_native.clone(), cs);
 
-        let mut poseidon_chip = Poseidon::<F>::new(cs, constants);
-        let n = 100;
+        let mut poseidon_chip = PoseidonChip::<F>::new(cs, constants_native);
+        let n = 4943;
         for _ in 0..n {
             poseidon_chip.hash(i1, i2);
             poseidon_chip.reset();
@@ -198,7 +193,7 @@ mod tests {
         };
 
         let priv_input = [Fp::from(1234567), Fp::from(109987)];
-        let mut poseidon = PoseidonNative::new(PoseidonCurve::SECP256K1);
+        let mut poseidon = Poseidon::new(PoseidonCurve::SECP256K1);
         let expected_hash = poseidon.hash(&priv_input);
 
         let mut cs = ConstraintSystem::new();
@@ -208,6 +203,10 @@ mod tests {
         end_timer!(witness_gen_timer);
 
         cs.set_constraints(&synthesizer);
+
+        println!("Num constraints: {}", cs.num_constraints.unwrap());
+        println!("Num vars: {}", cs.num_vars());
+
         assert!(cs.is_sat(&witness, &pub_input));
     }
 }
