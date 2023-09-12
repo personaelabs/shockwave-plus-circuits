@@ -1,20 +1,30 @@
 use frontend::{ConstraintSystem, FieldGC, Wire};
+use shockwave_plus::{IOPattern, PoseidonCurve, SpongeOp};
 
-use crate::PoseidonChip;
+use crate::PoseidonSpongeChip;
+
+const ARTY: usize = 2;
+const SPONGE_WIDTH: usize = ARTY + 1; // The sponge capacity is one, so the width is arity + 1
 
 pub fn verify_merkle_proof<F: FieldGC>(
     leaf: Wire<F>,
     siblings: &[Wire<F>],
     path_indices: &[Wire<F>],
     cs: &mut ConstraintSystem<F>,
-    poseidon: &mut PoseidonChip<F>,
 ) -> Wire<F> {
+    let mut poseidon_sponge = PoseidonSpongeChip::<F, SPONGE_WIDTH>::new(
+        SPONGE_WIDTH.to_string().as_bytes(),
+        IOPattern::new(vec![SpongeOp::Absorb(2), SpongeOp::Squeeze(1)]),
+        PoseidonCurve::SECP256K1,
+        cs,
+    );
+
     let mut node = leaf;
     for (sibling, path) in siblings.iter().zip(path_indices.iter()) {
-        let left = poseidon.hash(*sibling, node);
-        poseidon.reset();
-        let right = poseidon.hash(node, *sibling);
-        poseidon.reset();
+        poseidon_sponge.absorb(&[node, *sibling]);
+        let left = poseidon_sponge.squeeze(1)[0];
+        poseidon_sponge.absorb(&[*sibling, node]);
+        let right = poseidon_sponge.squeeze(1)[0];
         node = cs.if_then(path.is_zero(), left).else_then(right);
     }
 
@@ -24,52 +34,53 @@ pub fn verify_merkle_proof<F: FieldGC>(
 #[cfg(test)]
 mod tests {
     use shockwave_plus::PoseidonCurve;
+    use shockwave_plus::PoseidonSponge;
 
     use super::*;
-
-    use shockwave_plus::Poseidon;
-    use shockwave_plus::PoseidonConstants;
 
     type Fp = frontend::ark_secp256k1::Fq;
     const TREE_DEPTH: usize = 5;
 
     #[test]
     pub fn test_verify_merkle_proof() {
-        let mut poseidon = Poseidon::new(PoseidonCurve::SECP256K1);
+        let mut poseidon_sponge = PoseidonSponge::<Fp, SPONGE_WIDTH>::new(
+            SPONGE_WIDTH.to_string().as_bytes(),
+            PoseidonCurve::SECP256K1,
+            IOPattern::new(vec![SpongeOp::Absorb(2), SpongeOp::Squeeze(1)]),
+        );
 
         let synthesizer = |cs: &mut ConstraintSystem<Fp>| {
             let leaf = cs.alloc_priv_input();
             let siblings = cs.alloc_priv_inputs(TREE_DEPTH);
             let path_indices = cs.alloc_priv_inputs(TREE_DEPTH);
 
-            let poseidon_constants = PoseidonConstants::new(PoseidonCurve::SECP256K1);
-            let mut poseidon_chip = PoseidonChip::<Fp>::new(cs, poseidon_constants);
-
-            let node = verify_merkle_proof(leaf, &siblings, &path_indices, cs, &mut poseidon_chip);
+            let node = verify_merkle_proof(leaf, &siblings, &path_indices, cs);
             cs.expose_public(node);
         };
 
-        let siblings = [
-            Fp::from(1u32),
-            Fp::from(2u32),
-            Fp::from(3u32),
-            Fp::from(4u32),
-            Fp::from(5u32),
-        ];
-        let path_indices = [0, 1, 1, 0, 0];
+        let siblings = (0..TREE_DEPTH)
+            .map(|i| Fp::from(i as u64))
+            .collect::<Vec<Fp>>();
+
+        let path_indices = (0..TREE_DEPTH).map(|i| i % 3).collect::<Vec<usize>>();
+
+        // Compute the expected root
 
         let leaf = Fp::from(3u32);
         let mut node = leaf;
         for (sibling, sel) in siblings.iter().zip(path_indices.iter()) {
             if sel & 1 == 1 {
-                node = poseidon.hash(&[node, *sibling]);
+                poseidon_sponge.absorb(&[node, *sibling]);
+                node = poseidon_sponge.squeeze(1)[0];
             } else {
-                node = poseidon.hash(&[*sibling, node]);
+                poseidon_sponge.absorb(&[*sibling, node]);
+                node = poseidon_sponge.squeeze(1)[0];
             }
-            poseidon.reset();
         }
 
         let expected_root = node;
+
+        // Run the circuit
 
         let mut cs = ConstraintSystem::new();
         let mut priv_input = vec![];
@@ -78,7 +89,7 @@ mod tests {
         priv_input.extend_from_slice(
             &path_indices
                 .iter()
-                .map(|x| Fp::from(*x))
+                .map(|x| Fp::from(*x as u64))
                 .collect::<Vec<Fp>>(),
         );
 

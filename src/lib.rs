@@ -10,5 +10,6 @@ pub use ecc::double::ec_double;
 pub use ecc::mul::ec_mul;
 pub use ecc::AffinePoint;
 pub use poseidon::poseidon::PoseidonChip;
+pub use poseidon::sponge::PoseidonSpongeChip;
 pub use to_addr::to_addr;
 pub use tree::verify_merkle_proof;
