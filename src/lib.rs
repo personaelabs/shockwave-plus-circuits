@@ -5,6 +5,7 @@ mod poseidon;
 mod to_addr;
 mod tree;
 
+pub use bitops::{from_bits, to_bits};
 pub use ecc::add::{ec_add_complete, ec_add_incomplete};
 pub use ecc::double::ec_double;
 pub use ecc::mul::ec_mul;

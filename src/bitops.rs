@@ -71,26 +71,26 @@ pub fn from_bits<F: FieldGC>(bits: &[Wire<F>]) -> Wire<F> {
     cs.sum(&terms)
 }
 
-pub fn to_bits<F: FieldGC>(a: Wire<F>) -> Vec<Wire<F>> {
+pub fn to_bits<F: FieldGC>(a: Wire<F>, field_bits: usize) -> Vec<Wire<F>> {
     let cs = a.cs();
 
-    let field_bits = 256;
-    let mut bits = vec![cs.one(); 256];
+    let bits = (0..field_bits)
+        .map(|_| cs.alloc_var(F::ZERO))
+        .collect::<Vec<Wire<F>>>();
 
     if cs.is_witness_gen() {
         let a_assigned = cs.wires[a.index];
         let a_bits_native = a_assigned.into_bigint().to_bits_be();
-        for a_i in 0..field_bits {
-            bits[a_i] = cs.alloc_const(F::from(a_bits_native[a_i] as u64));
+        for i in 0..field_bits {
+            cs.wires[bits[i].index] = F::from(a_bits_native[i]);
         }
     }
 
     let mut sum = cs.alloc_const(F::ZERO);
 
     let mut pow = F::ONE;
-    for a_i in &bits {
-        let pow_alloc = cs.alloc_const(pow);
-        let term = *a_i * pow_alloc;
+    for a_i in bits.iter().rev() {
+        let term = cs.mul_const(*a_i, pow);
         sum += term;
 
         pow *= F::from(2u32);
@@ -104,7 +104,7 @@ pub fn to_bits<F: FieldGC>(a: Wire<F>) -> Vec<Wire<F>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use frontend::ark_ff::Field;
+    use frontend::ark_ff::{Field, PrimeField};
     use frontend::ConstraintSystem;
 
     type Fp = frontend::ark_secp256k1::Fq;
@@ -124,6 +124,35 @@ mod tests {
 
         let priv_input = bits;
         let pub_input = vec![expected];
+
+        let mut cs = ConstraintSystem::new();
+        let witness = cs.gen_witness(synthesizer, &pub_input, &priv_input);
+
+        cs.set_constraints(&synthesizer);
+        assert!(cs.is_sat(&witness, &pub_input));
+    }
+
+    #[test]
+    fn test_to_bits() {
+        let synthesizer = |cs: &mut ConstraintSystem<Fp>| {
+            let val = cs.alloc_priv_input();
+            let out = to_bits(val, 256);
+
+            for out_i in out {
+                cs.expose_public(out_i);
+            }
+        };
+
+        let val = Fp::from(123);
+        let expected_bits = val
+            .into_bigint()
+            .to_bits_be()
+            .iter()
+            .map(|b| Fp::from(*b))
+            .collect::<Vec<Fp>>();
+
+        let priv_input = [val];
+        let pub_input = expected_bits;
 
         let mut cs = ConstraintSystem::new();
         let witness = cs.gen_witness(synthesizer, &pub_input, &priv_input);
